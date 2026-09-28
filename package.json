@@ -1,0 +1,36 @@
+{
+  "name": "leadscraper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Find every US trailer-rental business via an adaptive-grid Google Maps scraper",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "seed": "tsx src/cli.ts seed",
+    "search": "tsx src/cli.ts search",
+    "details": "tsx src/cli.ts details",
+    "emails": "tsx src/cli.ts emails",
+    "enrich": "tsx src/cli.ts enrich",
+    "dedupe": "tsx src/cli.ts dedupe",
+    "export": "tsx src/cli.ts export",
+    "status": "tsx src/cli.ts status",
+    "build-data": "tsx scripts/build-data.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "cheerio": "^1.2.0",
+    "playwright": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.20.4",
+    "all-the-cities": "^3.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
