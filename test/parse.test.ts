@@ -102,5 +102,7 @@ describe('real Maps capture: "trailer rental" near Logan, UT', () => {
     expect(young!.categories).toContain('Utility trailer dealer');
     expect(places.filter((p) => p.phone).length).toBeGreaterThan(100);
     expect(places.filter((p) => p.reviewCount).length).toBeGreaterThan(100);
+    // Unrated places must not pick up a bogus review count.
+    expect(places.filter((p) => p.rating == null && p.reviewCount != null)).toEqual([]);
   });
 });

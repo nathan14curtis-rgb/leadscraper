@@ -116,7 +116,8 @@ export function placeFromArray(a: unknown[]): PlaceRecord | null {
     website,
     rating: numOrNull(at(a, 4, 7)),
     // Review count moved from a[4][8] to a[37][1] (seen in real 2026 captures); keep both.
-    reviewCount: numOrNull(at(a, 37, 1)) ?? numOrNull(at(a, 4, 8)),
+    // Only when a[37] is the [null, count, …] shape; unrated places reuse the slot for photos.
+    reviewCount: (at(a, 37, 0) === null ? numOrNull(at(a, 37, 1)) : null) ?? numOrNull(at(a, 4, 8)),
   };
 }
 
