@@ -79,12 +79,15 @@ export class Backoff {
   private strikes = 0;
   private clean = 0;
 
-  async onBlocked(worker: number) {
+  /** `onPause` is told when the pause ends (for a countdown in the progress display). */
+  async onBlocked(worker: number, onPause?: (untilMs: number, strike: number) => void) {
     const steps = config.delays.blockBackoffMs;
     const wait = steps[Math.min(this.strikes, steps.length - 1)];
     this.strikes++;
     this.clean = 0;
-    const until = new Date(Date.now() + wait).toLocaleTimeString();
+    const untilMs = Date.now() + wait;
+    onPause?.(untilMs, this.strikes);
+    const until = new Date(untilMs).toLocaleTimeString();
     console.warn(
       `\x07[worker ${worker}] BLOCKED by Google (strike ${this.strikes}). Pausing ${Math.round(wait / 60000)} min until ${until}.` +
         (config.search.headless ? '' : ' You can solve the CAPTCHA in the open window meanwhile.'),

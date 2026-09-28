@@ -5,8 +5,9 @@ import { config } from '../../config.ts';
 import { type DB, type PlaceRecord, log, nowIso } from '../db.ts';
 import { type Cell, LandMask, insertCell, subdivide } from '../grid.ts';
 import { isRelevant, upsertPlace } from '../places.ts';
-import { Backoff, BlockedError, assertNotBlocked, handleConsent, jitter, launchContext, sleep } from './browser.ts';
+import { Backoff, BlockedError, assertNotBlocked, handleConsent, jitter, launchContext, randInt, sleep } from './browser.ts';
 import { mergeRecords, placeFromHref, placesFromText } from './parse.ts';
+import { Progress, formatDuration } from '../progress.ts';
 
 export interface SearchTask {
   id: number;
@@ -39,7 +40,14 @@ export const isDataResponse = (url: string) =>
   (/\/search\?/.test(url) && /[?&]tbm=map\b/.test(url)) || url.includes('/maps/preview/place');
 
 /** Loads one search, scrolls the result list to the end and returns every place seen. */
-export async function scrapeSearch(page: Page, query: string, lat: number, lng: number, zoom: number): Promise<SearchResult> {
+export async function scrapeSearch(
+  page: Page,
+  query: string,
+  lat: number,
+  lng: number,
+  zoom: number,
+  onStep: (step: string) => void = () => {},
+): Promise<SearchResult> {
   const payloads: string[] = [];
   const pending: Promise<void>[] = [];
   const onResponse = (res: import('playwright').Response) => {
@@ -54,12 +62,14 @@ export async function scrapeSearch(page: Page, query: string, lat: number, lng: 
   page.on('response', onResponse);
   try {
     const url = searchUrl(query, lat, lng, zoom);
+    onStep('loading page');
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     if (page.url().includes('consent.google.')) {
       await handleConsent(page);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     }
     await assertNotBlocked(page);
+    onStep('waiting for results');
     await page.waitForSelector('div[role="feed"], div[role="main"] h1', { timeout: 20_000 }).catch(() => {});
     await jitter(config.delays.actionMs);
     await assertNotBlocked(page);
@@ -89,6 +99,7 @@ export async function scrapeSearch(page: Page, query: string, lat: number, lng: 
           if (++stagnant >= 3) break;
         } else stagnant = 0;
         last = count;
+        onStep(`scrolling · page ${i + 1} · ${count} results so far`);
         await feed.evaluate((el) => el.scrollTo(0, el.scrollHeight));
         await jitter(config.delays.scrollMs);
         await assertNotBlocked(page);
@@ -101,6 +112,7 @@ export async function scrapeSearch(page: Page, query: string, lat: number, lng: 
       )
       .catch(() => [] as { href: string; label: string | null }[]);
 
+    onStep('parsing results');
     await Promise.all(pending);
     const fromJson = payloads.flatMap(placesFromText);
     const fromDom = anchors.map((a) => placeFromHref(a.href, a.label)).filter((p): p is PlaceRecord => !!p);
@@ -182,6 +194,18 @@ export async function runSearch(db: DB, opts: SearchOptions = {}) {
 
   let stop = false;
   let started = 0;
+  let finished = 0;
+  const counts = db.prepare(
+    `SELECT SUM(status IN ('done','saturated','skipped','error')) AS done, SUM(status = 'pending') AS pending, COUNT(*) AS total FROM search_cells`,
+  );
+  const placeCount = db.prepare(`SELECT COUNT(*) AS n FROM places`);
+  const progress = new Progress('search', (elapsed) => {
+    const c = counts.get() as { done: number; pending: number; total: number };
+    const places = (placeCount.get() as { n: number }).n;
+    const perHour = elapsed > 60_000 ? (finished / elapsed) * 3_600_000 : 0;
+    const eta = perHour > 0 ? ` · ETA ~${formatDuration(((c.pending ?? 0) / perHour) * 3_600_000)}` : '';
+    return `${(c.done ?? 0).toLocaleString()}/${c.total.toLocaleString()} searches done · ${places.toLocaleString()} places · ${Math.round(perHour)}/hr${eta}`;
+  });
   const onSigint = () => {
     if (stop) process.exit(130);
     stop = true;
@@ -190,7 +214,9 @@ export async function runSearch(db: DB, opts: SearchOptions = {}) {
   process.on('SIGINT', onSigint);
 
   const worker = async (w: number) => {
+    progress.set(w, 'starting', Date.now() + w * 4_000);
     await sleep(w * 4_000);
+    progress.set(w, 'launching browser');
     const ctx = await launchContext(w);
     const page = ctx.pages()[0] ?? (await ctx.newPage());
     const backoff = new Backoff();
@@ -199,15 +225,18 @@ export async function runSearch(db: DB, opts: SearchOptions = {}) {
         const task = claim();
         if (!task) {
           if (!hasWork()) break;
+          progress.set(w, 'idle: waiting for other workers / scheduled retries', Date.now() + 15_000);
           await sleep(15_000); // others are running and may enqueue children, or retries are scheduled
           continue;
         }
         started++;
-        const label = `[w${w}] L${task.level} "${task.query}" @${task.lat.toFixed(3)},${task.lng.toFixed(3)} z${task.zoom}`;
+        const where = `"${task.query}" @${task.lat.toFixed(3)},${task.lng.toFixed(3)} z${task.zoom}`;
+        const label = `[w${w}] L${task.level} ${where}`;
         try {
-          const res = await scrapeSearch(page, task.query, task.lat, task.lng, task.zoom);
+          const res = await scrapeSearch(page, task.query, task.lat, task.lng, task.zoom, (step) => progress.set(w, `${where} · ${step}`));
           if (opts.saveFixtures) saveFixture(task, res);
           const r = recordResult(db, task, res.places, mask);
+          finished++;
           backoff.onSuccess();
           console.log(
             `${label} → ${res.places.length} results, ${r.kept} kept${r.saturated ? ` SATURATED${r.children ? ` → ${r.children} child searches` : ' (max level)'}` : ''}`,
@@ -216,7 +245,7 @@ export async function runSearch(db: DB, opts: SearchOptions = {}) {
           if (e instanceof BlockedError) {
             db.prepare(`UPDATE search_cells SET status = 'pending', attempts = attempts - 1 WHERE id = ?`).run(task.id);
             log(db, 'search', String(task.id), 'blocked', e.url);
-            await backoff.onBlocked(w);
+            await backoff.onBlocked(w, (until, strike) => progress.set(w, `BLOCKED by Google (strike ${strike}), paused`, until));
             continue;
           }
           const msg = (e as Error).message?.slice(0, 500) ?? 'unknown error';
@@ -224,6 +253,7 @@ export async function runSearch(db: DB, opts: SearchOptions = {}) {
             // Our connection, not this cell: don't burn an attempt, wait for the network.
             db.prepare(`UPDATE search_cells SET status = 'pending', attempts = attempts - 1 WHERE id = ?`).run(task.id);
             console.warn(`${label} → network error, retrying in 60 s: ${msg.split('\n')[0]}`);
+            progress.set(w, 'network down, retrying', Date.now() + 60_000);
             await sleep(60_000);
             continue;
           }
@@ -235,18 +265,24 @@ export async function runSearch(db: DB, opts: SearchOptions = {}) {
             task.id,
           );
           log(db, 'search', String(task.id), 'error', msg);
-          console.warn(`${label} → error: ${msg}`);
+          console.warn(`${label} → error: ${msg.split('\n')[0]}`);
         }
-        await jitter(config.delays.betweenSearchesMs);
+        const pause = randInt(config.delays.betweenSearchesMs);
+        progress.set(w, 'pausing between searches', Date.now() + pause);
+        await sleep(pause);
       }
     } finally {
+      progress.set(w, 'closing browser');
       await ctx.close().catch(() => {});
+      progress.remove(w);
     }
   };
 
+  progress.start();
   try {
     await Promise.all(Array.from({ length: contexts }, (_, i) => worker(i)));
   } finally {
+    progress.stop();
     process.off('SIGINT', onSigint);
   }
   console.log(`Search stage: ran ${started} searches this session.`);

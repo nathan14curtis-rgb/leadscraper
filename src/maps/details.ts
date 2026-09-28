@@ -2,7 +2,8 @@ import type { Page } from 'playwright';
 import { config } from '../../config.ts';
 import { type DB, type PlaceRecord, log } from '../db.ts';
 import { upsertPlace } from '../places.ts';
-import { Backoff, BlockedError, assertNotBlocked, handleConsent, jitter, launchContext, sleep } from './browser.ts';
+import { Backoff, BlockedError, assertNotBlocked, handleConsent, jitter, launchContext, randInt, sleep } from './browser.ts';
+import { Progress, formatDuration } from '../progress.ts';
 import { isDataResponse } from './search.ts';
 import { mergeRecords, placesFromText } from './parse.ts';
 
@@ -94,8 +95,15 @@ export async function runDetails(db: DB, opts: { contexts?: number; limit?: numb
 
   let next = 0;
   let done = 0;
+  const progress = new Progress('details', (elapsed) => {
+    const perHour = elapsed > 60_000 ? (done / elapsed) * 3_600_000 : 0;
+    const left = rows.length - next;
+    return `${done.toLocaleString()}/${rows.length.toLocaleString()} places · ${Math.round(perHour)}/hr${perHour ? ` · ETA ~${formatDuration((left / perHour) * 3_600_000)}` : ''}`;
+  });
   const worker = async (w: number) => {
+    progress.set(w, 'starting', Date.now() + w * 4_000);
     await sleep(w * 4_000);
+    progress.set(w, 'launching browser');
     const ctx = await launchContext(w);
     const page = ctx.pages()[0] ?? (await ctx.newPage());
     const backoff = new Backoff();
@@ -103,6 +111,7 @@ export async function runDetails(db: DB, opts: { contexts?: number; limit?: numb
       while (!stop && next < rows.length) {
         const row = rows[next++];
         try {
+          progress.set(w, `opening ${row.name}`);
           const rec = await scrapeDetails(page, row.cid);
           db.transaction(() => {
             if (rec) upsertPlace(db, rec);
@@ -115,21 +124,27 @@ export async function runDetails(db: DB, opts: { contexts?: number; limit?: numb
           if (e instanceof BlockedError) {
             rows.push(row); // retry later in this run
             log(db, 'details', row.cid, 'blocked', e.url);
-            await backoff.onBlocked(w);
+            await backoff.onBlocked(w, (until, strike) => progress.set(w, `BLOCKED by Google (strike ${strike}), paused`, until));
             continue;
           }
           markDone.run(row.cid);
           log(db, 'details', row.cid, 'error', (e as Error).message?.slice(0, 500));
         }
-        await jitter(config.delays.betweenSearchesMs);
+        const pause = randInt(config.delays.betweenSearchesMs);
+        progress.set(w, 'pausing between places', Date.now() + pause);
+        await sleep(pause);
       }
     } finally {
+      progress.set(w, 'closing browser');
       await ctx.close().catch(() => {});
+      progress.remove(w);
     }
   };
+  progress.start();
   try {
     await Promise.all(Array.from({ length: opts.contexts ?? config.search.contexts }, (_, i) => worker(i)));
   } finally {
+    progress.stop();
     process.off('SIGINT', onSigint);
   }
   console.log(`Details stage: fetched ${done} places.`);
