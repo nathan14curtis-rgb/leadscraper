@@ -116,8 +116,9 @@ export function placeFromArray(a: unknown[]): PlaceRecord | null {
     website,
     rating: numOrNull(at(a, 4, 7)),
     // Review count moved from a[4][8] to a[37][1] (seen in real 2026 captures); keep both.
-    // Only when a[37] is the [null, count, …] shape; unrated places reuse the slot for photos.
-    reviewCount: (at(a, 37, 0) === null ? numOrNull(at(a, 37, 1)) : null) ?? numOrNull(at(a, 4, 8)),
+    // Historically a[4][8]. Current list payloads omit it; a[37][1] looks similar but is set
+    // for unrated places too (likely a photo count), so it is deliberately not used.
+    reviewCount: numOrNull(at(a, 4, 8)),
   };
 }
 
