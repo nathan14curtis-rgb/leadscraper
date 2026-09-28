@@ -44,7 +44,7 @@ export const config = {
     'Utility trailer dealer',
   ],
   /** Out of scope even if the name says "trailer" (RV/camper rentals, trailer parks). */
-  categoryDenyPattern: /\bRV\b|camper|motor ?home|travel trailer|mobile home park|trailer park|campground/i,
+  categoryDenyPattern: /\bRV\b|recreational vehicle|camper|motor ?home|travel trailer|mobile home park|trailer park|campground/i,
   nameKeepPattern: /trailer/i,
 
   grid: {
