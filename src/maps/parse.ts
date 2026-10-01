@@ -115,6 +115,9 @@ export function placeFromArray(a: unknown[]): PlaceRecord | null {
     phone: str(at(a, 178, 0, 0)) ?? findPhone(a[178]),
     website,
     rating: numOrNull(at(a, 4, 7)),
+    // Review count moved from a[4][8] to a[37][1] (seen in real 2026 captures); keep both.
+    // Historically a[4][8]. Current list payloads omit it; a[37][1] looks similar but is set
+    // for unrated places too (likely a photo count), so it is deliberately not used.
     reviewCount: numOrNull(at(a, 4, 8)),
   };
 }

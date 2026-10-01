@@ -33,10 +33,19 @@ npm run search                       # re-run after reboots; it picks up where i
 npm run details && npm run enrich && npm run dedupe && npm run emails && npm run export
 ```
 
+While `search`, `details` and `emails` run, the bottom of the terminal shows a live status block. It has a spinner, run time, progress, rate and ETA, plus one line per browser saying what it's doing right now (loading, scrolling page 3, pausing 8s, BLOCKED with a countdown). If the spinner is moving, it's running. When output goes to a file instead of a terminal, it prints a one-line heartbeat every minute. Set `NO_PROGRESS=1` to turn the status block off.
+
+```
+⠴ search · running 2h 14m · 1,284/9,110 searches done · 3,902 places · 574/hr · ETA ~13h 38m
+  w0  "trailer rental" @41.625,-111.875 z11 · scrolling · page 3 · 60 results so far · 4s
+  w1  pausing between searches · 9s left
+  w2  BLOCKED by Google (strike 1), paused · 4m 12s left
+```
+
 | Command | What it does |
 |---|---|
 | `seed [--region=UT,ID\|all] [--no-cities] [--cities-only] [--min-pop=10000] [--reset]` | Adds grid cells (0.5°, land only) plus one search per city of 10k+ people, with one row per cell/query pair. |
-| `search [--contexts=3] [--limit=N] [--save-fixtures] [--retry-errors]` | Runs each pending search and scrolls the list to the end. If a search saturates (≥100 results), the cell splits into 4 children and the cell's remaining queries are skipped. |
+| `search [--contexts=3] [--limit=N] [--save-fixtures] [--retry-errors]` | Runs each pending search and scrolls the list to the end. If a search saturates (≥100 results and ≥90% of them inside the visible map), the cell splits into 4 children and the cell's remaining queries are skipped. Google pads sparse areas with businesses up to ~150 km away, so a full list on its own doesn't mean the area is full. |
 | `details [--limit=N]` | Visits place pages missing a phone, website, address or category. |
 | `emails [--limit=N] [--no-browser] [--retry-errors]` | Crawls each website domain once: homepage, `/contact`, `/contact-us`, `/about` and pages linked as contact, up to 6 pages. |
 | `enrich` | Flags chains by name or domain, parses the address into street/city/state/zip, and normalizes domains. |

@@ -89,6 +89,7 @@ const MIGRATIONS: string[] = [
     note TEXT
   );
   `,
+  `ALTER TABLE search_cells ADD COLUMN inside_count INTEGER;`,
 ];
 
 export function openDb(path = config.dbPath): DB {

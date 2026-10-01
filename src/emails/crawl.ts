@@ -2,6 +2,7 @@ import { chromium, type Browser } from 'playwright';
 import { config } from '../../config.ts';
 import { type DB, log, nowIso } from '../db.ts';
 import { type FoundEmail, extractFromHtml, scoreEmail } from './extract.ts';
+import { Progress, formatDuration } from '../progress.ts';
 
 const CANDIDATE_PATHS = ['/contact', '/contact-us', '/about'];
 
@@ -127,9 +128,16 @@ export async function runEmails(db: DB, opts: { limit?: number; noBrowser?: bool
   };
   process.on('SIGINT', onSigint);
 
-  const worker = async () => {
+  const progress = new Progress('emails', (elapsed) => {
+    const perHour = elapsed > 60_000 ? (done / elapsed) * 3_600_000 : 0;
+    const left = domains.length - next;
+    return `${done.toLocaleString()}/${domains.length.toLocaleString()} sites · ${withEmail.toLocaleString()} with email · ${Math.round(perHour)}/hr${perHour ? ` · ETA ~${formatDuration((left / perHour) * 3_600_000)}` : ''}`;
+  });
+
+  const worker = async (w: number) => {
     while (!stop && next < domains.length) {
       const { domain, website } = domains[next++];
+      progress.set(w, `crawling ${domain}`);
       const now = nowIso();
       if (shouldSkipDomain(domain)) {
         saveCrawl.run(domain, 'skipped', 0, 0, 0, 'skip list', now);
@@ -144,18 +152,21 @@ export async function runEmails(db: DB, opts: { limit?: number; noBrowser?: bool
         })();
         if (r.emails.length) withEmail++;
         done++;
-        if (done % 25 === 0 || r.emails.length)
+        if (r.emails.length)
           console.log(`${done}/${domains.length} ${domain}: ${r.emails.map((e) => e.email).join(', ') || '—'}`);
       } catch (e) {
         saveCrawl.run(domain, 'error', 0, 0, 0, (e as Error).message?.slice(0, 300), now);
         log(db, 'emails', domain, 'error', (e as Error).message?.slice(0, 500));
       }
     }
+    progress.remove(w);
   };
 
+  progress.start();
   try {
-    await Promise.all(Array.from({ length: config.emails.concurrency }, worker));
+    await Promise.all(Array.from({ length: config.emails.concurrency }, (_, i) => worker(i)));
   } finally {
+    progress.stop();
     process.off('SIGINT', onSigint);
     await browser?.close().catch(() => {});
   }

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { isSaturated } from '../src/maps/search.ts';
 import { cidFromFeatureId, mergeRecords, parseGuardedJson, placeFromHref, placesFromText } from '../src/maps/parse.ts';
 
 // Synthetic payloads shaped like Maps' positional arrays. Replace/extend with real captures
@@ -76,5 +77,37 @@ describe('mergeRecords', () => {
       { cid: '1', name: 'B', categories: ['Trailer dealer'], phone: '801' },
     ]);
     expect(m).toMatchObject({ name: 'A', categories: ['Trailer dealer'], phone: '801' });
+  });
+});
+
+// Real capture from the Utah pilot (`search --save-fixtures`), cell 41.75,-111.25 z10.
+describe('real Maps capture: "trailer rental" near Logan, UT', () => {
+  const real = JSON.parse(readFileSync('test/fixtures/real/search_trailer_rental_41.75_-111.25.json', 'utf8'));
+  const places = mergeRecords(real.payloads.flatMap((p: string) => placesFromText(p)));
+  const young = places.find((p) => p.name === 'Young Truck and Trailer Logan');
+
+  it('decodes every result in the list (6 scroll pages)', () => {
+    expect(places).toHaveLength(real.count);
+    expect(places.every((p) => /^\d+$/.test(p.cid) && p.categories.length && p.lat && p.lng && p.placeId)).toBe(true);
+  });
+
+  it('is not treated as saturated: 119 results, but Google padded them from ~150 km around', () => {
+    const r = isSaturated(real.task, places);
+    expect(r.saturated).toBe(false);
+    // 26 of 119 results lie up to ~140 km outside the viewport.
+    expect(r.inside / places.length).toBeLessThan(0.85);
+  });
+
+  it('reads contact fields and ratings', () => {
+    expect(young).toMatchObject({
+      placeId: 'ChIJz1J-M2qAVIcREuS5AYut07A',
+      address: '2900 US-89, Nibley, UT 84321',
+      phone: '(435) 752-5667',
+      website: 'https://youngtruckandtrailerlogan.com/',
+      rating: 4.7,
+    });
+    expect(young!.categories).toContain('Utility trailer dealer');
+    expect(places.filter((p) => p.phone).length).toBeGreaterThan(100);
+    expect(places.filter((p) => p.rating).length).toBeGreaterThan(100);
   });
 });
