@@ -90,6 +90,8 @@ const MIGRATIONS: string[] = [
   );
   `,
   `ALTER TABLE search_cells ADD COLUMN inside_count INTEGER;`,
+  // Without this, deleting rows checks the parent_id reference with a full scan per row.
+  `CREATE INDEX IF NOT EXISTS search_cells_parent ON search_cells(parent_id);`,
 ];
 
 export function openDb(path = config.dbPath): DB {

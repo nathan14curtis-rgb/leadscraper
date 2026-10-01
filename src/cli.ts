@@ -29,8 +29,13 @@ function seed(db: DB, flags: Flags) {
   const mask = new LandMask(undefined, states);
 
   if (flags.reset) {
+    const n = (db.prepare(`SELECT COUNT(*) AS n FROM search_cells`).get() as { n: number }).n;
+    console.log(`Clearing ${n.toLocaleString()} planned searches (places are kept)…`);
+    // Every row is being deleted, so the self-reference check is pointless; skip it.
+    db.pragma('foreign_keys = OFF');
     db.exec(`DELETE FROM search_cells`);
-    console.log('Cleared search_cells.');
+    db.pragma('foreign_keys = ON');
+    console.log('Cleared.');
   }
   let rows = 0;
   let cells = 0;
