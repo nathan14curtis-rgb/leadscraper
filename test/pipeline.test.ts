@@ -9,7 +9,7 @@ import { runDedupe } from '../src/dedupe.ts';
 import { detectChain, runEnrich } from '../src/enrich.ts';
 import { runExport } from '../src/export.ts';
 import { insertCell } from '../src/grid.ts';
-import { recordResult, type SearchTask } from '../src/maps/search.ts';
+import { isSaturated, recordResult, type SearchTask } from '../src/maps/search.ts';
 import { isRelevant, upsertPlace } from '../src/places.ts';
 
 const place = (i: number, extra: Partial<PlaceRecord> = {}): PlaceRecord => ({
@@ -17,7 +17,7 @@ const place = (i: number, extra: Partial<PlaceRecord> = {}): PlaceRecord => ({
   name: `Trailer Place ${i}`,
   categories: ['Trailer rental service'],
   address: `${i} Main St, Provo, UT 84601`,
-  lat: 40.2 + i * 0.01,
+  lat: 40.2 + (i % 40) * 0.01,
   lng: -111.6,
   ...extra,
 });
@@ -43,7 +43,7 @@ describe('search bookkeeping', () => {
   it('marks an unsaturated search done and leaves later queries pending', () => {
     const { db, task } = setup();
     const r = recordResult(db, task(0), [place(1), place(2, { categories: ['Hardware store'], name: 'Hardware' })]);
-    expect(r).toEqual({ kept: 1, saturated: false, children: 0 });
+    expect(r).toEqual({ kept: 1, saturated: false, children: 0, inside: 2 });
     expect(task(0).status).toBe('done');
     expect(task(1).status).toBe('pending');
   });
@@ -60,6 +60,21 @@ describe('search bookkeeping', () => {
     expect(kids).toHaveLength(4);
     const kidQueries = db.prepare('SELECT MIN(query_idx) lo, COUNT(*) n FROM search_cells WHERE level = 1').get() as any;
     expect(kidQueries).toEqual({ lo: 1, n: 4 * (config.queries.length - 1) });
+  });
+});
+
+describe('isSaturated', () => {
+  const cell = { lat: 40.25, lng: -111.75, zoom: 10 };
+  const n = config.search.saturationThreshold;
+  it('splits when the capped list is all local', () => {
+    expect(isSaturated(cell, Array.from({ length: n }, (_, i) => place(i))).saturated).toBe(true);
+  });
+  it('does not split when Google padded the list with far-away places', () => {
+    const padded = Array.from({ length: n }, (_, i) => place(i, i < n / 2 ? {} : { lat: 42.5, lng: -113 }));
+    expect(isSaturated(cell, padded)).toEqual({ saturated: false, inside: n / 2 });
+  });
+  it('does not split below the cap', () => {
+    expect(isSaturated(cell, [place(1)]).saturated).toBe(false);
   });
 });
 

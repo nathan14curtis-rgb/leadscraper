@@ -73,6 +73,14 @@ export const config = {
     contexts: num(env.CONTEXTS, 3),
     /** A search returning at least this many unique places is treated as capped by Google (~120). */
     saturationThreshold: num(env.SATURATION_THRESHOLD, 100),
+    /**
+     * …and at least this share of them must sit inside the map viewport. When an area runs
+     * out of matches, Google pads the list with businesses up to ~150 km away; a search
+     * like that has found everything nearby and must not be split.
+     */
+    saturationInsideShare: num(env.SATURATION_INSIDE_SHARE, 0.9),
+    /** Width of the results panel covering the left of the map, in px. */
+    resultsPanelPx: 408,
     maxScrolls: 20,
     maxAttempts: 3,
     headless: bool(env.HEADLESS, true),

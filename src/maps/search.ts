@@ -141,6 +141,37 @@ const PICK_SQL = `
   ORDER BY c.level, random()
   LIMIT 1`;
 
+/** Half-extent in degrees of the visible map (right of the results panel) at this zoom. */
+export function viewportHalfSpan(lat: number, zoom: number) {
+  const degPerPx = 360 / (256 * 2 ** zoom);
+  const { width, height } = config.search.viewport;
+  return {
+    lng: ((width - config.search.resultsPanelPx) * degPerPx) / 2,
+    lat: (height * degPerPx * Math.cos((lat * Math.PI) / 180)) / 2,
+  };
+}
+
+/** Results inside the searched viewport (places without coordinates count as inside). */
+export function countInsideViewport(task: Pick<SearchTask, 'lat' | 'lng' | 'zoom'>, places: PlaceRecord[]): number {
+  const half = viewportHalfSpan(task.lat, task.zoom);
+  // 10% slack: Google's viewport and our estimate of it differ by a few pixels.
+  return places.filter(
+    (p) => p.lat == null || p.lng == null || (Math.abs(p.lat - task.lat) <= half.lat * 1.1 && Math.abs(p.lng - task.lng) <= half.lng * 1.1),
+  ).length;
+}
+
+/**
+ * A search is saturated (Google's ~120 cap hid more results) only when it hit the cap
+ * AND the results are local. If Google had to pad the list with far-away businesses, the
+ * area is exhausted and splitting it would just re-find the same places.
+ */
+export function isSaturated(task: Pick<SearchTask, 'lat' | 'lng' | 'zoom'>, places: PlaceRecord[]) {
+  const inside = countInsideViewport(task, places);
+  const saturated =
+    places.length >= config.search.saturationThreshold && inside >= places.length * config.search.saturationInsideShare;
+  return { saturated, inside };
+}
+
 /** Stores results and decides done vs. saturated (split into 4 children). */
 export function recordResult(db: DB, task: SearchTask, places: PlaceRecord[], mask?: LandMask) {
   return db.transaction(() => {
@@ -152,12 +183,12 @@ export function recordResult(db: DB, task: SearchTask, places: PlaceRecord[], ma
       upsertPlace(db, p, task.query);
       kept++;
     }
-    const saturated = places.length >= config.search.saturationThreshold;
+    const { saturated, inside } = isSaturated(task, places);
     const split = saturated && task.level < config.grid.maxLevel;
     db.prepare(
-      `UPDATE search_cells SET status = ?, result_count = ?, kept_count = ?, done_at = ?, last_error = ?, next_attempt_at = NULL
+      `UPDATE search_cells SET status = ?, result_count = ?, kept_count = ?, inside_count = ?, done_at = ?, last_error = ?, next_attempt_at = NULL
        WHERE id = ?`,
-    ).run(split ? 'saturated' : 'done', places.length, kept, nowIso(), saturated && !split ? 'saturated at max level' : null, task.id);
+    ).run(split ? 'saturated' : 'done', places.length, kept, inside, nowIso(), saturated && !split ? 'saturated at max level' : null, task.id);
     let children = 0;
     if (split) {
       db.prepare(`UPDATE search_cells SET status = 'skipped' WHERE cell_key = ? AND query_idx > ? AND status = 'pending'`).run(
@@ -166,7 +197,7 @@ export function recordResult(db: DB, task: SearchTask, places: PlaceRecord[], ma
       );
       for (const child of subdivide(task, mask)) children += insertCell(db, child, task.id, task.query_idx);
     }
-    return { kept, saturated, children };
+    return { kept, saturated, children, inside };
   })();
 }
 
@@ -239,7 +270,7 @@ export async function runSearch(db: DB, opts: SearchOptions = {}) {
           finished++;
           backoff.onSuccess();
           console.log(
-            `${label} → ${res.places.length} results, ${r.kept} kept${r.saturated ? ` SATURATED${r.children ? ` → ${r.children} child searches` : ' (max level)'}` : ''}`,
+            `${label} → ${res.places.length} results (${r.inside} nearby), ${r.kept} kept${r.saturated ? ` SATURATED${r.children ? ` → ${r.children} child searches` : ' (max level)'}` : ''}`,
           );
         } catch (e) {
           if (e instanceof BlockedError) {
