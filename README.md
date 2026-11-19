@@ -75,6 +75,27 @@ Settings live in [`config.ts`](config.ts). The usual environment overrides are:
 - **Blocking** (`src/maps/browser.ts`): each worker uses a persistent Chromium profile. On a `/sorry/` or "unusual traffic" page the worker pauses for 5 min, then 15 min, 45 min and 2 h. That search goes back in the queue without using up a retry. Network outages are also retried without using an attempt.
 - **Scope filter** (`src/places.ts`): a place is kept if Google's category is in the allowlist, or if its name contains "trailer" and it isn't an RV, camper or trailer-park listing. The full category list is stored, so the filter can be tightened later.
 
+## Vendor detection
+
+The `site` stage records every outside host a website uses. `config.vendors` maps hosts (and HTML markers) to a booking vendor. Evidence behind the current patterns:
+
+| Vendor | Type | Patterns | Evidence |
+|---|---|---|---|
+| Lockii | own_customer | `*.lockii.app`, `<lockii-*>` elements | Confirmed in customer site code (`book.lockii.app/widget.js`, `dash.lockii.app/widget.js`) |
+| Booqable | competitor | `*.booqable.com`, `*.booqableshop.com`, `booqableOptions` | Confirmed (`<uuid>.assets.booqable.com/v2/booqable.js`, `<shop>.booqableshop.com`) |
+| HQ Rental Software | competitor | `*.caagcrm.com`, `*.hqrentals.app/.eu/.asia`, `/public/car-rental/` paths | Confirmed in customer site code and the vendor's plugin |
+| Automate Boss | competitor | "AutomateBoss" text | Text only: sites are built on HighLevel and no vendor host has been confirmed |
+| Big Rentals | competitor | `bigrentals.com`, `hqrent.com` | Not yet seen on a customer site |
+
+Sites with a Book / Reserve button but no known vendor count as `generic_booking`; sites with neither count as `none`.
+
+To refine the patterns:
+
+1. Add known customer sites to `data/seed_sites.txt`.
+2. Run `npm run site -- --urls=data/seed_sites.txt`, then `npm run hosts -- --seeds` to read each site's fingerprint.
+3. After the real crawl, `npm run hosts` lists outside hosts by how many trailer sites use them, so unknown booking tools rise to the top.
+4. Edit `config.vendors` and run `npm run hosts -- --relabel` to re-apply labels without re-crawling.
+
 ## Data files
 
 - `data/us_land.geojson` holds US state polygons from Natural Earth 1:50m (public domain).
