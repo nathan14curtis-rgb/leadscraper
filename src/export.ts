@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../config.ts';
 import type { DB } from './db.ts';
-import { isRelevant } from './places.ts';
+import { deriveScope } from './places.ts';
 
 export interface ExportOptions {
   noChains?: boolean;
@@ -10,6 +10,10 @@ export interface ExportOptions {
   hasEmail?: boolean;
   minConfidence?: number;
   outDir?: string;
+  /** Only rows confirmed as trailer renters (drops needs_check). */
+  inScopeOnly?: boolean;
+  /** Also export rows the scope rules rejected. */
+  allScopes?: boolean;
 }
 
 export function csvCell(v: unknown): string {
@@ -22,7 +26,7 @@ const csv = (rows: unknown[][]) => rows.map((r) => r.map(csvCell).join(',')).joi
 const LEAD_COLUMNS = [
   'cid', 'name', 'primary_category', 'categories', 'street', 'city', 'state', 'zip', 'address_full',
   'phone', 'website', 'domain', 'best_email', 'email_count', 'rating', 'review_count', 'lat', 'lng',
-  'is_chain', 'chain_brand', 'google_url', 'place_id', 'first_seen', 'last_seen', 'source_queries',
+  'is_chain', 'chain_brand', 'scope', 'google_url', 'place_id', 'first_seen', 'last_seen', 'source_queries',
 ] as const;
 
 export function runExport(db: DB, opts: ExportOptions = {}) {
@@ -46,7 +50,9 @@ export function runExport(db: DB, opts: ExportOptions = {}) {
 
   const rows = places.filter((p) => {
     const categories: string[] = JSON.parse(p.categories_json);
-    if (!isRelevant({ name: p.name, categories }) && categories.length) return false;
+    p.scope ??= deriveScope(p.name, categories, p.site_trailer_mentions);
+    if (p.scope === 'out_of_scope' && !opts.allScopes) return false;
+    if (opts.inScopeOnly && p.scope !== 'in_scope') return false;
     if (opts.hasEmail && !p.best_email) return false;
     p.categories = categories.join('; ');
     p.source_queries = JSON.parse(p.source_queries_json).join('; ');

@@ -2,13 +2,42 @@ import { config } from '../config.ts';
 import { type DB, type PlaceRecord, nowIso } from './db.ts';
 import { domainOf, formatPhone, normalizeWebsite } from './normalize.ts';
 
-const ALLOW = new Set(config.categoryAllowlist.map((c) => c.toLowerCase()));
+const CORE = new Set(config.categoryCore.map((c) => c.toLowerCase()));
+const ALLOW = new Set([...config.categoryCore, ...config.categoryBroad].map((c) => c.toLowerCase()));
+
+export type Scope = 'in_scope' | 'needs_check' | 'out_of_scope';
 
 /** Scope filter applied to every search result before it is stored. */
 export function isRelevant(p: Pick<PlaceRecord, 'name' | 'categories'>): boolean {
   if (p.categories.some((c) => ALLOW.has(c.toLowerCase()))) return true;
   if (!config.nameKeepPattern.test(p.name)) return false;
   return !p.categories.some((c) => config.categoryDenyPattern.test(c)) && !config.categoryDenyPattern.test(p.name);
+}
+
+/**
+ * in_scope: a core trailer category or a name that says trailer rental.
+ * needs_check: a broad category (or "trailer" in the name) with no proof yet. The site crawl
+ *   promotes it to in_scope when the website mentions trailers for rent, otherwise demotes it.
+ *   Places with no website (or an unreachable one) stay needs_check for a caller to confirm.
+ * out_of_scope: fails the relevance filter, or the website shows no trailer rentals.
+ *
+ * `siteMentions` is the number of trailer-rental phrases the site crawl found, or null if
+ * the site hasn't been crawled successfully.
+ */
+export function deriveScope(name: string, categories: string[], siteMentions: number | null): Scope {
+  if (categories.length && !isRelevant({ name, categories })) return 'out_of_scope';
+  if (categories.some((c) => CORE.has(c.toLowerCase())) || config.nameRentalPattern.test(name)) return 'in_scope';
+  if (siteMentions == null) return 'needs_check';
+  return siteMentions > 0 ? 'in_scope' : 'out_of_scope';
+}
+
+/** Recomputes scope for every place (or the places on one domain). */
+export function refreshScope(db: DB, domain?: string) {
+  const rows = db
+    .prepare(`SELECT cid, name, categories_json, site_trailer_mentions FROM places ${domain ? 'WHERE domain = ?' : ''}`)
+    .all(...(domain ? [domain] : [])) as { cid: string; name: string; categories_json: string; site_trailer_mentions: number | null }[];
+  const upd = db.prepare(`UPDATE places SET scope = ? WHERE cid = ?`);
+  for (const r of rows) upd.run(deriveScope(r.name, JSON.parse(r.categories_json), r.site_trailer_mentions), r.cid);
 }
 
 /**

@@ -30,19 +30,18 @@ export const config = {
   /** City seeds run a shorter query list; the grid already covers the long tail. */
   cityQueryCount: num(env.CITY_QUERY_COUNT, 3),
 
-  /** Google's own category labels we keep. Anything else is kept only if the name contains "trailer". */
-  categoryAllowlist: [
-    'Trailer rental service',
-    'Trailer dealer',
-    'Trailer supply store',
-    'Trailer repair shop',
-    'Truck rental agency',
-    'Equipment rental agency',
-    'Moving supply store',
-    'Horse trailer dealer',
-    'Boat trailer dealer',
-    'Utility trailer dealer',
-  ],
+  /**
+   * Google's own category labels. Core labels are trusted as trailer renters. Broad labels
+   * (tool hire, box trucks, moving supplies…) are kept but marked scope = needs_check until
+   * the site crawl finds trailers for rent on the business's website.
+   */
+  categoryCore: ['Trailer rental service', 'Trailer dealer', 'Horse trailer dealer', 'Boat trailer dealer', 'Utility trailer dealer'],
+  categoryBroad: ['Equipment rental agency', 'Truck rental agency', 'Moving supply store', 'Trailer repair shop', 'Trailer supply store'],
+  /** A name like "Smith Trailer Rentals" is as good as a core category. */
+  nameRentalPattern: /trailer\s*(rental|rentals|rent|hire)\b|\b(rent|rental|rentals)\b.*\btrailers?\b/i,
+  /** Website text that counts as "rents trailers": a trailer term within ~60 chars of rent/rental/hire. */
+  siteTrailerRentalPattern:
+    /\b(trailers?|car haulers?|dump trailers?|cargo trailers?|utility trailers?|equipment trailers?)\b[^.!?\n]{0,60}\b(rent|rents|rental|rentals|hire|for rent)\b|\b(rent|rental|rentals|hire)\b[^.!?\n]{0,60}\b(trailers?|car haulers?)\b/gi,
   /** Out of scope even if the name says "trailer" (RV/camper rentals, trailer parks). */
   categoryDenyPattern: /\bRV\b|recreational vehicle|camper|motor ?home|travel trailer|mobile home park|trailer park|campground/i,
   nameKeepPattern: /trailer/i,

@@ -92,6 +92,10 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE search_cells ADD COLUMN inside_count INTEGER;`,
   // Without this, deleting rows checks the parent_id reference with a full scan per row.
   `CREATE INDEX IF NOT EXISTS search_cells_parent ON search_cells(parent_id);`,
+  // v4: scope (see places.ts deriveScope) and site-crawl evidence feeding it.
+  `ALTER TABLE places ADD COLUMN scope TEXT;
+   ALTER TABLE places ADD COLUMN site_trailer_mentions INTEGER;
+   ALTER TABLE places ADD COLUMN uhaul_dealer INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export function openDb(path = config.dbPath): DB {

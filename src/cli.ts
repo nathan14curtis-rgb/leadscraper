@@ -104,7 +104,7 @@ const HELP = `leadscraper <command> [flags]
   emails    [--limit=N] [--no-browser] [--retry-errors]
   enrich
   dedupe
-  export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--out=out]
+  export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--in-scope-only] [--all-scopes] [--out=out]
   status
 
 Environment: DB_PATH, PROXY_URL, CONTEXTS, HEADLESS, CHROMIUM_PATH, … (see config.ts)`;
@@ -134,6 +134,8 @@ async function main() {
           hasEmail: !!flags['has-email'],
           minConfidence: numFlag(flags, 'min-confidence'),
           outDir: strFlag(flags, 'out'),
+          inScopeOnly: !!flags['in-scope-only'],
+          allScopes: !!flags['all-scopes'],
         });
       case 'status':
         return status(db);
