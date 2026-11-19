@@ -6,6 +6,7 @@ import { runSite } from './emails/crawl.ts';
 import { runHostsReport } from './emails/vendors.ts';
 import { runEnrich } from './enrich.ts';
 import { runExport } from './export.ts';
+import { runScore } from './score.ts';
 import { runGroups } from './groups.ts';
 import { type Cell, LandMask, gridCells, insertCell, readCities } from './grid.ts';
 import { runDetails } from './maps/details.ts';
@@ -83,6 +84,11 @@ function status(db: DB) {
     )
     .all() as any[];
   const blocks = db.prepare(`SELECT COUNT(*) n, MAX(ts) last FROM crawl_log WHERE outcome = 'blocked'`).get() as any;
+  const tally = (col: string) =>
+    (db.prepare(`SELECT COALESCE(${col}, '—') v, COUNT(*) n FROM places WHERE merged_into IS NULL GROUP BY v ORDER BY n DESC`).all() as any[])
+      .map((r) => `${r.v}=${r.n}`)
+      .join(', ');
+  const reviewed = db.prepare(`SELECT COUNT(*) n FROM places WHERE reviews_fetched_at IS NOT NULL AND merged_into IS NULL`).get() as any;
 
   console.log('Search cells:');
   for (const c of cells) console.log(`  ${c.status.padEnd(10)} ${c.n}`);
@@ -96,6 +102,10 @@ function status(db: DB) {
     console.log('Query yield (places found / found by this query only):');
     for (const y of yields) console.log(`  ${y.query.padEnd(24)} ${String(y.places).padStart(6)} / ${y.only_this}`);
   }
+  console.log(`Scope: ${tally('scope')}`);
+  console.log(`Segment: ${tally('segment')}`);
+  console.log(`Booking: ${tally('booking_type')}`);
+  console.log(`Reviews fetched: ${reviewed.n}`);
   console.log(`Blocks logged: ${blocks.n}${blocks.last ? ` (last ${blocks.last})` : ''}`);
 }
 
@@ -111,7 +121,9 @@ const HELP = `leadscraper <command> [flags]
   enrich
   dedupe
   groups    link multi-location independents; sets segment (single_yard / multi_location / chain)
-  export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--in-scope-only] [--all-scopes] [--out=out]
+  score     0-100 lead_score and size_band for in-scope independents (export also runs it)
+  export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--in-scope-only] [--all-scopes]
+            [--segment=single_yard] [--min-score=N] [--include-customers] [--out=out]
   status
 
 Environment: DB_PATH, PROXY_URL, CONTEXTS, HEADLESS, CHROMIUM_PATH, … (see config.ts)`;
@@ -160,7 +172,12 @@ async function main() {
           outDir: strFlag(flags, 'out'),
           inScopeOnly: !!flags['in-scope-only'],
           allScopes: !!flags['all-scopes'],
+          segment: strFlag(flags, 'segment'),
+          minScore: numFlag(flags, 'min-score'),
+          includeCustomers: !!flags['include-customers'],
         });
+      case 'score':
+        return runScore(db);
       case 'status':
         return status(db);
       default:

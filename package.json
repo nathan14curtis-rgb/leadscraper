@@ -16,6 +16,7 @@
     "hosts": "tsx src/cli.ts hosts",
     "groups": "tsx src/cli.ts groups",
     "reviews": "tsx src/cli.ts reviews",
+    "score": "tsx src/cli.ts score",
     "enrich": "tsx src/cli.ts enrich",
     "dedupe": "tsx src/cli.ts dedupe",
     "export": "tsx src/cli.ts export",

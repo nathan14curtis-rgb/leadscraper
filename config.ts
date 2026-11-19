@@ -185,6 +185,23 @@ export const config = {
     /(^|\.)(yelp|bbb|apple|maps\.apple)\.(com|org)$/, /(^|\.)hotjar\.com$/, /(^|\.)bing\.com$/,
   ],
 
+  /** lead_score weights (max 100). Tune after the Utah pilot QA. */
+  score: {
+    singleYard: 25,
+    multiLocation: 15,
+    /** Reviews in the last 12 months: 1-4 / 5-19 / 20+. */
+    reviews12m: [5, 15, 20] as [number, number, number],
+    /** Last review within 90 days. */
+    recentReview: 10,
+    /** No online booking: often the warmest single-yard lead. */
+    bookingNone: 15,
+    /** Already books online with a competitor or another booking tool. */
+    bookingOther: 10,
+    phone: 10,
+    domainEmail: 10,
+    inScope: 10,
+  },
+
   /** Chain detection: matched against the business name, then against the website domain. */
   chains: [
     { brand: 'U-Haul', name: /\bu[\s-]?haul\b/i, domain: /(^|\.)uhaul\.com$/ },

@@ -134,6 +134,9 @@ const MIGRATIONS: string[] = [
    ALTER TABLE places ADD COLUMN hours_text TEXT;
    ALTER TABLE places ADD COLUMN claimed INTEGER;
    ALTER TABLE places ADD COLUMN description TEXT;`,
+  // v8: lead score (see score.ts).
+  `ALTER TABLE places ADD COLUMN lead_score INTEGER;
+   ALTER TABLE places ADD COLUMN size_band TEXT;`,
 ];
 
 export function openDb(path = config.dbPath): DB {
