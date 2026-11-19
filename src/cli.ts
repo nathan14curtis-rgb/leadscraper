@@ -7,6 +7,7 @@ import { runHostsReport } from './emails/vendors.ts';
 import { runEnrich } from './enrich.ts';
 import { runExport } from './export.ts';
 import { runScore } from './score.ts';
+import { runQa } from './qa.ts';
 import { runGroups } from './groups.ts';
 import { type Cell, LandMask, gridCells, insertCell, readCities } from './grid.ts';
 import { runDetails } from './maps/details.ts';
@@ -124,6 +125,7 @@ const HELP = `leadscraper <command> [flags]
   score     0-100 lead_score and size_band for in-scope independents (export also runs it)
   export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--in-scope-only] [--all-scopes]
             [--segment=single_yard] [--min-score=N] [--include-customers] [--out=out]
+  qa        [--n=100] [--state=UT]   random in-scope rows with pass/fail columns for hand checking
   status
 
 Environment: DB_PATH, PROXY_URL, CONTEXTS, HEADLESS, CHROMIUM_PATH, … (see config.ts)`;
@@ -178,6 +180,8 @@ async function main() {
         });
       case 'score':
         return runScore(db);
+      case 'qa':
+        return runQa(db, { n: numFlag(flags, 'n'), state: strFlag(flags, 'state'), outDir: strFlag(flags, 'out') });
       case 'status':
         return status(db);
       default:
