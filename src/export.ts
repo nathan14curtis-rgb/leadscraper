@@ -26,7 +26,7 @@ const csv = (rows: unknown[][]) => rows.map((r) => r.map(csvCell).join(',')).joi
 const LEAD_COLUMNS = [
   'cid', 'name', 'primary_category', 'categories', 'street', 'city', 'state', 'zip', 'address_full',
   'phone', 'website', 'domain', 'best_email', 'email_count', 'rating', 'review_count', 'lat', 'lng',
-  'is_chain', 'chain_brand', 'scope', 'google_url', 'place_id', 'first_seen', 'last_seen', 'source_queries',
+  'is_chain', 'chain_brand', 'scope', 'segment', 'group_id', 'location_count', 'group_states', 'google_url', 'place_id', 'first_seen', 'last_seen', 'source_queries',
 ] as const;
 
 export function runExport(db: DB, opts: ExportOptions = {}) {

@@ -96,6 +96,11 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE places ADD COLUMN scope TEXT;
    ALTER TABLE places ADD COLUMN site_trailer_mentions INTEGER;
    ALTER TABLE places ADD COLUMN uhaul_dealer INTEGER NOT NULL DEFAULT 0;`,
+  // v5: business groups and segment (see groups.ts).
+  `ALTER TABLE places ADD COLUMN group_id TEXT;
+   ALTER TABLE places ADD COLUMN location_count INTEGER;
+   ALTER TABLE places ADD COLUMN group_states TEXT;
+   ALTER TABLE places ADD COLUMN segment TEXT;`,
 ];
 
 export function openDb(path = config.dbPath): DB {

@@ -5,6 +5,7 @@ import { runDedupe } from './dedupe.ts';
 import { runEmails } from './emails/crawl.ts';
 import { runEnrich } from './enrich.ts';
 import { runExport } from './export.ts';
+import { runGroups } from './groups.ts';
 import { type Cell, LandMask, gridCells, insertCell, readCities } from './grid.ts';
 import { runDetails } from './maps/details.ts';
 import { runSearch } from './maps/search.ts';
@@ -104,6 +105,7 @@ const HELP = `leadscraper <command> [flags]
   emails    [--limit=N] [--no-browser] [--retry-errors]
   enrich
   dedupe
+  groups    link multi-location independents; sets segment (single_yard / multi_location / chain)
   export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--in-scope-only] [--all-scopes] [--out=out]
   status
 
@@ -127,6 +129,8 @@ async function main() {
         return runEnrich(db);
       case 'dedupe':
         return runDedupe(db);
+      case 'groups':
+        return runGroups(db);
       case 'export':
         return runExport(db, {
           noChains: !!flags['no-chains'],
