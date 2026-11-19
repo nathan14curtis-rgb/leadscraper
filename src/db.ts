@@ -101,6 +101,29 @@ const MIGRATIONS: string[] = [
    ALTER TABLE places ADD COLUMN location_count INTEGER;
    ALTER TABLE places ADD COLUMN group_states TEXT;
    ALTER TABLE places ADD COLUMN segment TEXT;`,
+  // v6: site crawl (see emails/crawl.ts): outside hosts, page text, booking labels.
+  `ALTER TABLE email_crawls ADD COLUMN site_version INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE email_crawls ADD COLUMN is_seed INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE email_crawls ADD COLUMN booking_cta INTEGER;
+   ALTER TABLE email_crawls ADD COLUMN renders INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE site_hosts (
+     domain TEXT NOT NULL,
+     host TEXT NOT NULL,
+     kind TEXT NOT NULL,            -- script/iframe/link/form_action/stylesheet/network/marker
+     example_url TEXT,
+     PRIMARY KEY (domain, host, kind)
+   );
+   CREATE INDEX site_hosts_host ON site_hosts(host);
+   CREATE TABLE site_pages (
+     domain TEXT NOT NULL,
+     url TEXT NOT NULL,
+     text TEXT NOT NULL,
+     fetched_at TEXT NOT NULL,
+     PRIMARY KEY (domain, url)
+   );
+   ALTER TABLE places ADD COLUMN booking_vendor TEXT;
+   ALTER TABLE places ADD COLUMN booking_type TEXT;
+   ALTER TABLE places ADD COLUMN site_builder TEXT;`,
 ];
 
 export function openDb(path = config.dbPath): DB {

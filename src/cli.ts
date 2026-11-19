@@ -2,7 +2,8 @@
 import { config } from '../config.ts';
 import { type DB, openDb } from './db.ts';
 import { runDedupe } from './dedupe.ts';
-import { runEmails } from './emails/crawl.ts';
+import { runSite } from './emails/crawl.ts';
+import { runHostsReport } from './emails/vendors.ts';
 import { runEnrich } from './enrich.ts';
 import { runExport } from './export.ts';
 import { runGroups } from './groups.ts';
@@ -102,7 +103,9 @@ const HELP = `leadscraper <command> [flags]
   seed      [--region=UT|UT,ID|all] [--no-cities] [--cities-only] [--min-pop=10000] [--reset]
   search    [--contexts=3] [--limit=N] [--save-fixtures] [--retry-errors]
   details   [--contexts=3] [--limit=N]
-  emails    [--limit=N] [--no-browser] [--retry-errors]
+  site      [--limit=N] [--no-browser] [--retry-errors] [--urls=data/seed_sites.txt]
+            crawl websites: emails, outside hosts, booking vendor, page text (alias: emails)
+  hosts     [--seeds] [--all] [--limit=60] [--relabel]   outside hosts ranked by sites using them
   enrich
   dedupe
   groups    link multi-location independents; sets segment (single_yard / multi_location / chain)
@@ -123,8 +126,16 @@ async function main() {
         return await runSearch(db, { contexts: numFlag(flags, 'contexts'), limit: numFlag(flags, 'limit'), saveFixtures: !!flags['save-fixtures'], retryErrors: !!flags['retry-errors'] });
       case 'details':
         return await runDetails(db, { contexts: numFlag(flags, 'contexts'), limit: numFlag(flags, 'limit') });
+      case 'site':
       case 'emails':
-        return await runEmails(db, { limit: numFlag(flags, 'limit'), noBrowser: !!flags['no-browser'], retryErrors: !!flags['retry-errors'] });
+        return await runSite(db, {
+          limit: numFlag(flags, 'limit'),
+          noBrowser: !!flags['no-browser'],
+          retryErrors: !!flags['retry-errors'],
+          urlsFile: strFlag(flags, 'urls'),
+        });
+      case 'hosts':
+        return runHostsReport(db, { seeds: !!flags.seeds, all: !!flags.all, limit: numFlag(flags, 'limit'), relabel: !!flags.relabel });
       case 'enrich':
         return runEnrich(db);
       case 'dedupe':
