@@ -124,6 +124,16 @@ const MIGRATIONS: string[] = [
    ALTER TABLE places ADD COLUMN booking_vendor TEXT;
    ALTER TABLE places ADD COLUMN booking_type TEXT;
    ALTER TABLE places ADD COLUMN site_builder TEXT;`,
+  // v7: reviews and place-page activity (see maps/reviews.ts). Counts and dates only.
+  `ALTER TABLE places ADD COLUMN reviews_fetched_at TEXT;
+   ALTER TABLE places ADD COLUMN last_review_at TEXT;
+   ALTER TABLE places ADD COLUMN reviews_12m INTEGER;
+   ALTER TABLE places ADD COLUMN reviews_90d INTEGER;
+   ALTER TABLE places ADD COLUMN owner_replies_pct INTEGER;
+   ALTER TABLE places ADD COLUMN owner_name TEXT;
+   ALTER TABLE places ADD COLUMN hours_text TEXT;
+   ALTER TABLE places ADD COLUMN claimed INTEGER;
+   ALTER TABLE places ADD COLUMN description TEXT;`,
 ];
 
 export function openDb(path = config.dbPath): DB {

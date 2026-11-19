@@ -9,6 +9,7 @@ import { runExport } from './export.ts';
 import { runGroups } from './groups.ts';
 import { type Cell, LandMask, gridCells, insertCell, readCities } from './grid.ts';
 import { runDetails } from './maps/details.ts';
+import { runReviews } from './maps/reviews.ts';
 import { runSearch } from './maps/search.ts';
 
 type Flags = Record<string, string | boolean>;
@@ -103,6 +104,7 @@ const HELP = `leadscraper <command> [flags]
   seed      [--region=UT|UT,ID|all] [--no-cities] [--cities-only] [--min-pop=10000] [--reset]
   search    [--contexts=3] [--limit=N] [--save-fixtures] [--retry-errors]
   details   [--contexts=3] [--limit=N]
+  reviews   [--contexts=3] [--limit=N] [--refresh] [--save-fixtures]   review recency for independents
   site      [--limit=N] [--no-browser] [--retry-errors] [--urls=data/seed_sites.txt]
             crawl websites: emails, outside hosts, booking vendor, page text (alias: emails)
   hosts     [--seeds] [--all] [--limit=60] [--relabel]   outside hosts ranked by sites using them
@@ -126,6 +128,13 @@ async function main() {
         return await runSearch(db, { contexts: numFlag(flags, 'contexts'), limit: numFlag(flags, 'limit'), saveFixtures: !!flags['save-fixtures'], retryErrors: !!flags['retry-errors'] });
       case 'details':
         return await runDetails(db, { contexts: numFlag(flags, 'contexts'), limit: numFlag(flags, 'limit') });
+      case 'reviews':
+        return await runReviews(db, {
+          contexts: numFlag(flags, 'contexts'),
+          limit: numFlag(flags, 'limit'),
+          refresh: !!flags.refresh,
+          saveFixtures: !!flags['save-fixtures'],
+        });
       case 'site':
       case 'emails':
         return await runSite(db, {
