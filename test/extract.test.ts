@@ -22,6 +22,45 @@ describe('extractFromHtml', () => {
   });
 });
 
+describe('glued text and vendor addresses', () => {
+  const html = `<html><body>
+    <div><span>Contact us</span><span>928-358-8404</span><span>info@wmtrailers.com</span><a href="/">Home</a></div>
+    <p>Call 814-0182</p><p>Email</p><p>workhorsetrailersutah@gmail.com</p><p>Quick links</p>
+    <footer>Hours: 8-5 rentals@acme.com</footer>
+    <div>Powered by Booqable — support@booqable.com · 20privacy@lodgify.com</div>
+  </body></html>`;
+  const raw = `<html><body><p>Contact us928-358-8404info@wmtrailers.comhours</p><p>usworkhorsetrailersutah@gmail.com</p>
+    <a href="mailto:workhorsetrailersutah@gmail.com">mail</a></body></html>`;
+
+  it('keeps emails separate from neighbouring elements', () => {
+    const emails = extractFromHtml(html, 'https://wmtrailers.com/').emails.map((e) => e.email).sort();
+    expect(emails).toEqual(['info@wmtrailers.com', 'rentals@acme.com', 'workhorsetrailersutah@gmail.com']);
+  });
+
+  it('strips phone numbers and words glued on in a single text node', () => {
+    const emails = extractFromHtml(raw, 'https://wmtrailers.com/').emails.map((e) => e.email).sort();
+    expect(emails).toEqual(['info@wmtrailers.com', 'workhorsetrailersutah@gmail.com']);
+  });
+
+  it('unglues TLDs but keeps real long TLDs', () => {
+    expect(cleanEmail('info@acme.comhours')).toBe('info@acme.com');
+    expect(cleanEmail('a@acme.netquick')).toBe('a@acme.net');
+    expect(cleanEmail('a@acme.network')).toBe('a@acme.network');
+    expect(cleanEmail('a@acme.info')).toBe('a@acme.info');
+    expect(cleanEmail('a@acme.co')).toBe('a@acme.co');
+  });
+
+  it('does not read URL-encoded spaces as part of the address, and drops placeholders', () => {
+    const r = extractFromHtml('<html><body><a data-x="mailto:%20sales@acme.com">x</a><input placeholder="john@doe.com"></body></html>', 'https://acme.com/');
+    expect(r.emails.map((e) => e.email)).toEqual(['sales@acme.com']);
+  });
+
+  it('drops booking-platform addresses', () => {
+    expect(cleanEmail('support@booqable.com')).toBeNull();
+    expect(cleanEmail('privacy@lodgify.com')).toBeNull();
+  });
+});
+
 describe('helpers', () => {
   it('rejects junk', () => {
     expect(cleanEmail('noreply@acme.com')).toBeNull();
