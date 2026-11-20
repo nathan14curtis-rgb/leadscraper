@@ -12,9 +12,31 @@ const EMAIL_RE = /[a-z0-9][a-z0-9._%+-]{0,63}@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0
 const ASSET_TLD = /\.(png|jpe?g|gif|webp|svg|bmp|ico|css|js|mjs|json|woff2?|ttf|eot|mp4|webm|pdf|zip)$/i;
 const JUNK = [
   /sentry/i, /wixpress/i, /example\.(com|org|net)$/i, /no-?reply/i, /do-?not-?reply/i, /@(domain|email|yourdomain|yoursite|website|company)\.com$/i,
-  /^(your|name|user|username|email|info@example|test|someone|john\.?doe|jane\.?doe)@/i, /@\dx\./i, /@(sentry|wix|squarespace|godaddy|shopify|cloudflare|schema|w3)\./i,
+  /^(your|name|user|username|email|info@example|test|someone|john\.?doe|jane\.?doe)@/i, /@(doe|test|sample|placeholder)\.(com|net|org)$/i, /@\dx\./i, /@(sentry|wix|squarespace|godaddy|shopify|cloudflare|schema|w3)\./i,
   /\.(local|invalid|test)$/i, /^[0-9a-f]{16,}@/i,
+  // Booking/website/marketing platforms whose support or privacy addresses appear in embedded widgets and footers.
+  /@([a-z0-9-]+\.)*(booqable|lodgify|checkfront|fareharbor|peek|rezdy|rentmy|rentle|bookingkoala|bookeo|squareup|square|weebly|webflow|duda|jimdo|wordpress|elementor|mailchimp|hubspot|constantcontact|psxdigital|dealerspike|dealeron|dealerinspire|godaddysites|editmysite)\.(com|io|net|co)$/i,
 ];
+
+/**
+ * Real TLDs that start like a common TLD. Anything else of the form ".com<letters>" is a TLD with the next
+ * word glued on (e.g. "info@acme.comhours" from "info@acme.com" + "Hours").
+ */
+const GLUE_TLD = /^(com|net|org|edu|gov|biz|info|us)(?=[a-z])/;
+const REAL_LONG_TLDS = new Set(['community', 'company', 'computer', 'network', 'organic', 'education', 'business', 'construction', 'consulting', 'contractors']);
+
+function unglueTld(e: string): string {
+  const dot = e.lastIndexOf('.');
+  const tld = e.slice(dot + 1);
+  if (REAL_LONG_TLDS.has(tld)) return e;
+  const m = tld.match(GLUE_TLD);
+  return m ? e.slice(0, dot + 1) + m[1] : e;
+}
+
+/** Strips a phone number glued onto the front of a local part ("801-555-1234info@…" → "info@…"). */
+function unglueLeadingPhone(e: string): string {
+  return e.replace(/^[^@]*?\d{3}[-.]?\d{4}(?=[a-z][^@]*@)/, '');
+}
 export const FREEMAIL = /@(gmail|yahoo|hotmail|outlook|aol|icloud|me|msn|live|comcast|att|sbcglobal|bellsouth|verizon|charter|cox|protonmail|ymail)\.(com|net)$/i;
 
 export function cleanEmail(raw: string): string | null {
@@ -27,6 +49,7 @@ export function cleanEmail(raw: string): string | null {
   e = e.replace(/^mailto:/, '').split('?')[0].replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
   const m = e.match(new RegExp(`^${EMAIL_RE.source}$`, 'i'));
   if (!m) return null;
+  e = unglueTld(e);
   if (ASSET_TLD.test(e) || JUNK.some((re) => re.test(e))) return null;
   return e;
 }
@@ -123,7 +146,7 @@ export function extractFromHtml(html: string, pageUrl: string): PageExtract {
     .some((t) => /createElement\(\s*['"]script['"]\s*\)/.test(t));
   const found = new Map<string, EmailSource>();
   const add = (raw: string | null | undefined, source: EmailSource) => {
-    const e = raw && cleanEmail(raw);
+    const e = raw && cleanEmail(source === 'text' ? unglueLeadingPhone(raw.toLowerCase()) : raw);
     if (e && !found.has(e)) found.set(e, source);
   };
 
@@ -162,6 +185,12 @@ export function extractFromHtml(html: string, pageUrl: string): PageExtract {
   });
 
   $('script, style, noscript, svg, template').remove();
+  // cheerio's .text() joins adjacent elements with no whitespace, gluing an email to the label or
+  // phone number before it and the word after it. Pad block-level elements and line breaks first.
+  $('br').replaceWith(' ');
+  $('p, div, li, td, th, tr, h1, h2, h3, h4, h5, h6, section, article, header, footer, nav, aside, address, dt, dd, label, button, a, span')
+    .before(' ')
+    .after(' ');
   const text = $('body').text().replace(/\s+/g, ' ');
   const trailerMentions = [...text.matchAll(config.siteTrailerRentalPattern)].length;
   const uhaulDealer = UHAUL_TEXT.test(text) || [...hosts.values()].some((h) => /(^|\.)uhaul\.com$/.test(h.host) && h.kind !== 'stylesheet');
@@ -172,7 +201,15 @@ export function extractFromHtml(html: string, pageUrl: string): PageExtract {
     .replace(/\s*[[({]\s*dot\s*[\])}]\s*/gi, '.');
   for (const m of deobfuscated.matchAll(EMAIL_RE)) add(m[0], 'text');
   // Emails in raw attributes/inline scripts that the text pass can't see.
-  for (const m of html.matchAll(EMAIL_RE)) add(m[0], 'text');
+  // Decode %20 etc. first so "mailto:%20john@…" isn't read as "20john@…".
+  for (const m of html.replace(/%[0-9a-f]{2}/gi, ' ').matchAll(EMAIL_RE)) add(m[0], 'text');
+
+  // A text-pass address that is another found address with junk glued on the front
+  // ("usinfo@acme.com" next to "info@acme.com") is a parsing artifact.
+  for (const [e, source] of [...found]) {
+    if (source !== 'text') continue;
+    if ([...found.keys()].some((f) => f !== e && e.endsWith(f))) found.delete(e);
+  }
 
   return {
     emails: [...found].map(([email, source]) => ({ email, source })),
