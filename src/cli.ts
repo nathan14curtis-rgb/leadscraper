@@ -2,11 +2,16 @@
 import { config } from '../config.ts';
 import { type DB, openDb } from './db.ts';
 import { runDedupe } from './dedupe.ts';
-import { runEmails } from './emails/crawl.ts';
+import { runSite } from './emails/crawl.ts';
+import { runHostsReport } from './emails/vendors.ts';
 import { runEnrich } from './enrich.ts';
 import { runExport } from './export.ts';
+import { runScore } from './score.ts';
+import { runQa } from './qa.ts';
+import { runGroups } from './groups.ts';
 import { type Cell, LandMask, gridCells, insertCell, readCities } from './grid.ts';
 import { runDetails } from './maps/details.ts';
+import { runReviews } from './maps/reviews.ts';
 import { runSearch } from './maps/search.ts';
 
 type Flags = Record<string, string | boolean>;
@@ -29,8 +34,13 @@ function seed(db: DB, flags: Flags) {
   const mask = new LandMask(undefined, states);
 
   if (flags.reset) {
+    const n = (db.prepare(`SELECT COUNT(*) AS n FROM search_cells`).get() as { n: number }).n;
+    console.log(`Clearing ${n.toLocaleString()} planned searches (places are kept)…`);
+    // Every row is being deleted, so the self-reference check is pointless; skip it.
+    db.pragma('foreign_keys = OFF');
     db.exec(`DELETE FROM search_cells`);
-    console.log('Cleared search_cells.');
+    db.pragma('foreign_keys = ON');
+    console.log('Cleared.');
   }
   let rows = 0;
   let cells = 0;
@@ -75,6 +85,11 @@ function status(db: DB) {
     )
     .all() as any[];
   const blocks = db.prepare(`SELECT COUNT(*) n, MAX(ts) last FROM crawl_log WHERE outcome = 'blocked'`).get() as any;
+  const tally = (col: string) =>
+    (db.prepare(`SELECT COALESCE(${col}, '—') v, COUNT(*) n FROM places WHERE merged_into IS NULL GROUP BY v ORDER BY n DESC`).all() as any[])
+      .map((r) => `${r.v}=${r.n}`)
+      .join(', ');
+  const reviewed = db.prepare(`SELECT COUNT(*) n FROM places WHERE reviews_fetched_at IS NOT NULL AND merged_into IS NULL`).get() as any;
 
   console.log('Search cells:');
   for (const c of cells) console.log(`  ${c.status.padEnd(10)} ${c.n}`);
@@ -88,6 +103,10 @@ function status(db: DB) {
     console.log('Query yield (places found / found by this query only):');
     for (const y of yields) console.log(`  ${y.query.padEnd(24)} ${String(y.places).padStart(6)} / ${y.only_this}`);
   }
+  console.log(`Scope: ${tally('scope')}`);
+  console.log(`Segment: ${tally('segment')}`);
+  console.log(`Booking: ${tally('booking_type')}`);
+  console.log(`Reviews fetched: ${reviewed.n}`);
   console.log(`Blocks logged: ${blocks.n}${blocks.last ? ` (last ${blocks.last})` : ''}`);
 }
 
@@ -96,10 +115,17 @@ const HELP = `leadscraper <command> [flags]
   seed      [--region=UT|UT,ID|all] [--no-cities] [--cities-only] [--min-pop=10000] [--reset]
   search    [--contexts=3] [--limit=N] [--save-fixtures] [--retry-errors]
   details   [--contexts=3] [--limit=N]
-  emails    [--limit=N] [--no-browser] [--retry-errors]
+  reviews   [--contexts=3] [--limit=N] [--refresh] [--save-fixtures]   review recency for independents
+  site      [--limit=N] [--no-browser] [--retry-errors] [--urls=data/seed_sites.txt]
+            crawl websites: emails, outside hosts, booking vendor, page text (alias: emails)
+  hosts     [--seeds] [--all] [--limit=60] [--relabel]   outside hosts ranked by sites using them
   enrich
   dedupe
-  export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--out=out]
+  groups    link multi-location independents; sets segment (single_yard / multi_location / chain)
+  score     0-100 lead_score and size_band for in-scope independents (export also runs it)
+  export    [--no-chains] [--state=UT] [--has-email] [--min-confidence=50] [--in-scope-only] [--all-scopes]
+            [--segment=single_yard] [--min-score=N] [--include-customers] [--out=out]
+  qa        [--n=100] [--state=UT]   random in-scope rows with pass/fail columns for hand checking
   status
 
 Environment: DB_PATH, PROXY_URL, CONTEXTS, HEADLESS, CHROMIUM_PATH, … (see config.ts)`;
@@ -116,12 +142,29 @@ async function main() {
         return await runSearch(db, { contexts: numFlag(flags, 'contexts'), limit: numFlag(flags, 'limit'), saveFixtures: !!flags['save-fixtures'], retryErrors: !!flags['retry-errors'] });
       case 'details':
         return await runDetails(db, { contexts: numFlag(flags, 'contexts'), limit: numFlag(flags, 'limit') });
+      case 'reviews':
+        return await runReviews(db, {
+          contexts: numFlag(flags, 'contexts'),
+          limit: numFlag(flags, 'limit'),
+          refresh: !!flags.refresh,
+          saveFixtures: !!flags['save-fixtures'],
+        });
+      case 'site':
       case 'emails':
-        return await runEmails(db, { limit: numFlag(flags, 'limit'), noBrowser: !!flags['no-browser'], retryErrors: !!flags['retry-errors'] });
+        return await runSite(db, {
+          limit: numFlag(flags, 'limit'),
+          noBrowser: !!flags['no-browser'],
+          retryErrors: !!flags['retry-errors'],
+          urlsFile: strFlag(flags, 'urls'),
+        });
+      case 'hosts':
+        return runHostsReport(db, { seeds: !!flags.seeds, all: !!flags.all, limit: numFlag(flags, 'limit'), relabel: !!flags.relabel });
       case 'enrich':
         return runEnrich(db);
       case 'dedupe':
         return runDedupe(db);
+      case 'groups':
+        return runGroups(db);
       case 'export':
         return runExport(db, {
           noChains: !!flags['no-chains'],
@@ -129,7 +172,16 @@ async function main() {
           hasEmail: !!flags['has-email'],
           minConfidence: numFlag(flags, 'min-confidence'),
           outDir: strFlag(flags, 'out'),
+          inScopeOnly: !!flags['in-scope-only'],
+          allScopes: !!flags['all-scopes'],
+          segment: strFlag(flags, 'segment'),
+          minScore: numFlag(flags, 'min-score'),
+          includeCustomers: !!flags['include-customers'],
         });
+      case 'score':
+        return runScore(db);
+      case 'qa':
+        return runQa(db, { n: numFlag(flags, 'n'), state: strFlag(flags, 'state'), outDir: strFlag(flags, 'out') });
       case 'status':
         return status(db);
       default:

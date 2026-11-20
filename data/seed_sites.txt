@@ -1,0 +1,21 @@
+# Known booking-vendor customer sites, crawled with:  npm run site -- --urls=data/seed_sites.txt
+# then read their fingerprints with:                  npm run hosts -- --seeds
+# One URL per line; text after # is ignored. Add sites you know from sales calls.
+
+# Lockii (own customers): book.lockii.app / dash.lockii.app widget.js, <lockii-*> elements
+https://hafensgarage.com
+https://summittrailerrental.com
+
+# Automate Boss: footer says the rental system runs on AutomateBoss (HighLevel-built sites)
+https://dfwtrailerrental.com
+https://trailerrentalsystem.com
+https://automateboss-demo-booking.com
+
+# Big Rentals / HQRent: customers listed on hqrent.com/example-stores, websites not yet found:
+#   U-Tow USA (Big Rock, IL), Trinity Rental Pros (Fort Worth, TX), Elite Rentals MN (Elk River),
+#   Cartersville Trailer Rental (GA), Northeast Trailer Rentals (Hooksett, NH)
+
+# Booqable: trailer customers named in case studies, websites not yet found:
+#   VP Trailers, Adelaide Trailer Hire, Flathead Equipment
+
+# HQ Rental Software: no trailer customer site found yet

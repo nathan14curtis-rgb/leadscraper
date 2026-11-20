@@ -90,6 +90,53 @@ const MIGRATIONS: string[] = [
   );
   `,
   `ALTER TABLE search_cells ADD COLUMN inside_count INTEGER;`,
+  // Without this, deleting rows checks the parent_id reference with a full scan per row.
+  `CREATE INDEX IF NOT EXISTS search_cells_parent ON search_cells(parent_id);`,
+  // v4: scope (see places.ts deriveScope) and site-crawl evidence feeding it.
+  `ALTER TABLE places ADD COLUMN scope TEXT;
+   ALTER TABLE places ADD COLUMN site_trailer_mentions INTEGER;
+   ALTER TABLE places ADD COLUMN uhaul_dealer INTEGER NOT NULL DEFAULT 0;`,
+  // v5: business groups and segment (see groups.ts).
+  `ALTER TABLE places ADD COLUMN group_id TEXT;
+   ALTER TABLE places ADD COLUMN location_count INTEGER;
+   ALTER TABLE places ADD COLUMN group_states TEXT;
+   ALTER TABLE places ADD COLUMN segment TEXT;`,
+  // v6: site crawl (see emails/crawl.ts): outside hosts, page text, booking labels.
+  `ALTER TABLE email_crawls ADD COLUMN site_version INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE email_crawls ADD COLUMN is_seed INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE email_crawls ADD COLUMN booking_cta INTEGER;
+   ALTER TABLE email_crawls ADD COLUMN renders INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE site_hosts (
+     domain TEXT NOT NULL,
+     host TEXT NOT NULL,
+     kind TEXT NOT NULL,            -- script/iframe/link/form_action/stylesheet/network/marker
+     example_url TEXT,
+     PRIMARY KEY (domain, host, kind)
+   );
+   CREATE INDEX site_hosts_host ON site_hosts(host);
+   CREATE TABLE site_pages (
+     domain TEXT NOT NULL,
+     url TEXT NOT NULL,
+     text TEXT NOT NULL,
+     fetched_at TEXT NOT NULL,
+     PRIMARY KEY (domain, url)
+   );
+   ALTER TABLE places ADD COLUMN booking_vendor TEXT;
+   ALTER TABLE places ADD COLUMN booking_type TEXT;
+   ALTER TABLE places ADD COLUMN site_builder TEXT;`,
+  // v7: reviews and place-page activity (see maps/reviews.ts). Counts and dates only.
+  `ALTER TABLE places ADD COLUMN reviews_fetched_at TEXT;
+   ALTER TABLE places ADD COLUMN last_review_at TEXT;
+   ALTER TABLE places ADD COLUMN reviews_12m INTEGER;
+   ALTER TABLE places ADD COLUMN reviews_90d INTEGER;
+   ALTER TABLE places ADD COLUMN owner_replies_pct INTEGER;
+   ALTER TABLE places ADD COLUMN owner_name TEXT;
+   ALTER TABLE places ADD COLUMN hours_text TEXT;
+   ALTER TABLE places ADD COLUMN claimed INTEGER;
+   ALTER TABLE places ADD COLUMN description TEXT;`,
+  // v8: lead score (see score.ts).
+  `ALTER TABLE places ADD COLUMN lead_score INTEGER;
+   ALTER TABLE places ADD COLUMN size_band TEXT;`,
 ];
 
 export function openDb(path = config.dbPath): DB {

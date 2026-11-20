@@ -30,19 +30,18 @@ export const config = {
   /** City seeds run a shorter query list; the grid already covers the long tail. */
   cityQueryCount: num(env.CITY_QUERY_COUNT, 3),
 
-  /** Google's own category labels we keep. Anything else is kept only if the name contains "trailer". */
-  categoryAllowlist: [
-    'Trailer rental service',
-    'Trailer dealer',
-    'Trailer supply store',
-    'Trailer repair shop',
-    'Truck rental agency',
-    'Equipment rental agency',
-    'Moving supply store',
-    'Horse trailer dealer',
-    'Boat trailer dealer',
-    'Utility trailer dealer',
-  ],
+  /**
+   * Google's own category labels. Core labels are trusted as trailer renters. Broad labels
+   * (tool hire, box trucks, moving supplies…) are kept but marked scope = needs_check until
+   * the site crawl finds trailers for rent on the business's website.
+   */
+  categoryCore: ['Trailer rental service', 'Trailer dealer', 'Horse trailer dealer', 'Boat trailer dealer', 'Utility trailer dealer'],
+  categoryBroad: ['Equipment rental agency', 'Truck rental agency', 'Moving supply store', 'Trailer repair shop', 'Trailer supply store'],
+  /** A name like "Smith Trailer Rentals" is as good as a core category. */
+  nameRentalPattern: /trailer\s*(rental|rentals|rent|hire)\b|\b(rent|rental|rentals)\b.*\btrailers?\b/i,
+  /** Website text that counts as "rents trailers": a trailer term within ~60 chars of rent/rental/hire. */
+  siteTrailerRentalPattern:
+    /\b(trailers?|car haulers?|dump trailers?|cargo trailers?|utility trailers?|equipment trailers?)\b[^.!?\n]{0,60}\b(rent|rents|rental|rentals|hire|for rent)\b|\b(rent|rental|rentals|hire)\b[^.!?\n]{0,60}\b(trailers?|car haulers?)\b/gi,
   /** Out of scope even if the name says "trailer" (RV/camper rentals, trailer parks). */
   categoryDenyPattern: /\bRV\b|recreational vehicle|camper|motor ?home|travel trailer|mobile home park|trailer park|campground/i,
   nameKeepPattern: /trailer/i,
@@ -118,6 +117,89 @@ export const config = {
       'business.site', 'linktr.ee', 'twitter.com', 'x.com', 'youtube.com', 'tiktok.com', 'linkedin.com',
       'nextdoor.com', 'craigslist.org', 'bbb.org', 'yellowpages.com', 'mapquest.com',
     ],
+  },
+
+  site: {
+    /** Bumping this re-crawls every domain on the next `site` run. */
+    version: 1,
+    /** Re-render up to this many pages per site in Chromium when booking looks likely. */
+    maxRendersPerSite: 2,
+    /** Cleaned page text kept per site for the later profile stage. */
+    textCapBytes: 20_000,
+  },
+
+  /** Fingerprints found in raw HTML; stored as site_hosts rows with kind = 'marker'. */
+  htmlMarkers: [
+    { id: 'wordpress', pattern: /\/wp-content\/|\/wp-includes\//i },
+    { id: 'lockii-element', pattern: /<lockii-[a-z-]+/i },
+    { id: 'booqable-inline', pattern: /booqableOptions|powered by booqable/i },
+    { id: 'hq-integration', pattern: /hq-rental-software-integration|\/public\/car-rental\/(reservations|integrations)/i },
+    { id: 'automateboss-text', pattern: /automate ?boss/i },
+    { id: 'bigrentals-text', pattern: /powered by (big ?rentals|hq ?rent)\b/i },
+  ],
+
+  /**
+   * Booking software and site builders, matched against a site's external hosts (and the
+   * marker ids above). First match by type priority wins: own_customer > competitor >
+   * generic_booking. Evidence: see the "Vendor detection" section of the README.
+   */
+  vendors: [
+    // Lockii: book.lockii.app / dash.lockii.app widget.js, cdn.lockii.app, <lockii-*> elements.
+    { vendor: 'Lockii', type: 'own_customer', hosts: [/(^|\.)lockii\.app$/], markers: ['lockii-element'] },
+    // Booqable: <uuid>.assets.booqable.com/v2/booqable.js, <shop>.booqableshop.com.
+    { vendor: 'Booqable', type: 'competitor', hosts: [/(^|\.)booqable\.com$/, /(^|\.)booqableshop\.com$/], markers: ['booqable-inline'] },
+    // HQ Rental Software: <tenant>.caagcrm.com / <tenant>.us5.hqrentals.app integrator + iframe.
+    { vendor: 'HQ Rental Software', type: 'competitor', hosts: [/(^|\.)caagcrm\.com$/, /(^|\.)hqrentals\.(app|eu|asia)$/], markers: ['hq-integration'] },
+    // Big Rentals / HQRent: not yet seen on a customer site; vendor domains only (unverified).
+    { vendor: 'Big Rentals', type: 'competitor', hosts: [/(^|\.)bigrentals\.com$/, /(^|\.)hqrent\.com$/], markers: ['bigrentals-text'] },
+    // Automate Boss: HighLevel-built sites; no vendor host confirmed, so the footer text is the signal.
+    { vendor: 'Automate Boss', type: 'competitor', hosts: [/(^|\.)automateboss/], markers: ['automateboss-text'] },
+    // Other online booking tools: a booking flow, but not one of the named competitors.
+    { vendor: 'Checkfront', type: 'generic_booking', hosts: [/(^|\.)checkfront\.com$/], markers: [] },
+    { vendor: 'FareHarbor', type: 'generic_booking', hosts: [/(^|\.)fareharbor\.com$/], markers: [] },
+    { vendor: 'Rentle', type: 'generic_booking', hosts: [/(^|\.)rentle\.(io|store)$/], markers: [] },
+    { vendor: 'Point of Rental', type: 'generic_booking', hosts: [/(^|\.)pointofrental\.com$/], markers: [] },
+    { vendor: 'Calendly', type: 'generic_booking', hosts: [/(^|\.)calendly\.com$/], markers: [] },
+    { vendor: 'Square Appointments', type: 'generic_booking', hosts: [/^(book|app)\.squareup\.com$/, /(^|\.)square\.site$/], markers: [] },
+    { vendor: 'Bookeo', type: 'generic_booking', hosts: [/(^|\.)bookeo\.com$/], markers: [] },
+    { vendor: 'Acuity', type: 'generic_booking', hosts: [/(^|\.)acuityscheduling\.com$/], markers: [] },
+  ] as { vendor: string; type: 'own_customer' | 'competitor' | 'generic_booking'; hosts: RegExp[]; markers: string[] }[],
+
+  siteBuilders: [
+    { builder: 'Wix', hosts: [/(^|\.)(wixstatic|parastorage|wix)\.com$/], markers: [] },
+    { builder: 'Squarespace', hosts: [/(^|\.)squarespace(-cdn)?\.com$/], markers: [] },
+    { builder: 'GoDaddy', hosts: [/(^|\.)(godaddysites|wsimg)\.com$/], markers: [] },
+    { builder: 'Weebly', hosts: [/(^|\.)(weebly|editmysite)\.com$/], markers: [] },
+    { builder: 'Shopify', hosts: [/(^|\.)(shopify|myshopify)\.com$/], markers: [] },
+    { builder: 'Duda', hosts: [/(^|\.)(multiscreensite|dudamobile)\.com$/], markers: [] },
+    { builder: 'HighLevel', hosts: [/(^|\.)(leadconnectorhq|msgsndr)\.com$/], markers: [] },
+    { builder: 'WordPress', hosts: [], markers: ['wordpress'] },
+  ] as { builder: string; hosts: RegExp[]; markers: string[] }[],
+
+  /** Hosts nearly every site uses; hidden from the `hosts` report unless --all. */
+  hostNoise: [
+    /(^|\.)google(apis|tagmanager|-analytics|usercontent|syndication|adservices)?\.com$/, /(^|\.)gstatic\.com$/,
+    /(^|\.)doubleclick\.net$/, /(^|\.)(facebook|fbcdn|instagram|twitter|x|linkedin|youtube|pinterest|tiktok)\.(com|net)$/,
+    /(^|\.)fb\.me$/, /(^|\.)youtu\.be$/, /(^|\.)(cloudflare|jsdelivr|unpkg|jquery|bootstrapcdn|cdnjs|fontawesome|typekit)\.(com|net|org)$/,
+    /(^|\.)(fonts|use)\.(googleapis|typekit)\.(com|net)$/, /(^|\.)gravatar\.com$/, /(^|\.)w\.org$/, /(^|\.)wordpress\.(org|com)$/,
+    /(^|\.)(yelp|bbb|apple|maps\.apple)\.(com|org)$/, /(^|\.)hotjar\.com$/, /(^|\.)bing\.com$/,
+  ],
+
+  /** lead_score weights (max 100). Tune after the Utah pilot QA. */
+  score: {
+    singleYard: 25,
+    multiLocation: 15,
+    /** Reviews in the last 12 months: 1-4 / 5-19 / 20+. */
+    reviews12m: [5, 15, 20] as [number, number, number],
+    /** Last review within 90 days. */
+    recentReview: 10,
+    /** No online booking: often the warmest single-yard lead. */
+    bookingNone: 15,
+    /** Already books online with a competitor or another booking tool. */
+    bookingOther: 10,
+    phone: 10,
+    domainEmail: 10,
+    inScope: 10,
   },
 
   /** Chain detection: matched against the business name, then against the website domain. */
